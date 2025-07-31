@@ -3,7 +3,7 @@ using LiveSplit.TimeFormatters;
 
 namespace LiveSplit.Server.WebsocketMessages;
 
-public class PostSplitWebsocketMessage
+public class SplitWebsocketMessage
 {
     public int SplitIndex;
     public string SplitName;
@@ -22,7 +22,7 @@ public class PostSplitWebsocketMessage
     public float BestSplitGameTimeSeconds;
     public float BestSplitRealTimeSeconds;
 
-    public PostSplitWebsocketMessage(ISegment segment, int index, ITimeFormatter formatter)
+    public SplitWebsocketMessage(ISegment segment, int index, ITimeFormatter formatter)
     {
         SplitIndex = index;
         SplitName = segment.Name;

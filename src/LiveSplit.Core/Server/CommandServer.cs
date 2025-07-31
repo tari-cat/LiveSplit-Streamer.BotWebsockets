@@ -47,10 +47,34 @@ public class CommandServer
         Model.CurrentState = State;
 
         State.OnStart -= State_OnStart;
-        State.OnStart += State_OnStart;
-
         State.OnSplit -= State_OnSplit;
+        State.OnUndoSplit -= State_OnUndoSplit;
+        State.OnSkipSplit -= State_OnSkipSplit;
+        State.OnReset -= State_OnReset;
+        State.OnPause -= State_OnPause;
+        //State.OnUndoAllPauses -= State_OnUndoAllPauses;
+        State.OnResume -= State_OnResume;
+        //State.OnScrollUp -= State_OnScrollUp;
+        //State.OnScrollDown -= State_OnScrollDown;
+        //State.OnSwitchComparisonPrevious -= State_OnSwitchComparisonPrevious;
+        //State.OnSwitchComparisonNext -= State_OnSwitchComparisonNext;
+        //State.RunManuallyModified -= State_RunManuallyModified;
+        //State.ComparisonRenamed -= State_ComparisonRenamed;
+
+        State.OnStart += State_OnStart;
         State.OnSplit += State_OnSplit;
+        State.OnUndoSplit += State_OnUndoSplit;
+        State.OnSkipSplit += State_OnSkipSplit;
+        State.OnReset += State_OnReset;
+        State.OnPause += State_OnPause;
+        //State.OnUndoAllPauses += State_OnUndoAllPauses;
+        State.OnResume += State_OnResume;
+        //State.OnScrollUp += State_OnScrollUp;
+        //State.OnScrollDown += State_OnScrollDown;
+        //State.OnSwitchComparisonPrevious += State_OnSwitchComparisonPrevious;
+        //State.OnSwitchComparisonNext += State_OnSwitchComparisonNext;
+        //State.RunManuallyModified += State_RunManuallyModified;
+        //State.ComparisonRenamed += State_ComparisonRenamed;
     }
 
     public void StartTcp()
@@ -586,15 +610,9 @@ public class CommandServer
         {
             State.IsGameTimePaused = true;
         }
-    }
 
-    private void State_OnSplit(object sender, EventArgs e)
-    {
-        int index = State.CurrentSplitIndex - 1;
-        ISegment segment = State.Run[index];
-
-        PostSplitWebsocketMessage broadcast = new(segment, index, TimeFormatter);
-        BroadcastWebsocketMessage(new LiveSplitWebsocketMessage<PostSplitWebsocketMessage>("postsplit", broadcast));
+        StateWebsocketMessage broadcast = new(State, TimeFormatter);
+        BroadcastWebsocketMessage(new LiveSplitWebsocketMessage<StateWebsocketMessage>("broadcaststart", broadcast));
     }
 
     private TimeSpan? PredictTime(LiveSplitState state, string comparison)
@@ -632,10 +650,92 @@ public class CommandServer
         }
     }
 
+    #region Websocket Events
+
+    private void State_OnSplit(object sender, EventArgs e)
+    {
+        int previousIndex = State.CurrentSplitIndex - 1;
+        ISegment previousSegment = State.Run[previousIndex];
+
+        int currentIndex = State.CurrentSplitIndex;
+        ISegment currentSegment = State.Run[currentIndex];
+
+        StateWebsocketMessage state = new(State, TimeFormatter);
+        SplitWebsocketMessage previousSplit = new(previousSegment, previousIndex, TimeFormatter);
+        SplitWebsocketMessage currentSplit = new(currentSegment, currentIndex, TimeFormatter);
+        MultiSplitWebsocketMessage multi = new(state, previousSplit, currentSplit);
+        BroadcastWebsocketMessage(new LiveSplitWebsocketMessage<MultiSplitWebsocketMessage>("broadcastsplit", multi));
+    }
+
+    private void State_OnUndoSplit(object sender, EventArgs e)
+    {
+        int previousIndex = State.CurrentSplitIndex + 1;
+        ISegment previousSegment = State.Run[previousIndex];
+
+        int currentIndex = State.CurrentSplitIndex;
+        ISegment currentSegment = State.Run[currentIndex];
+
+        StateWebsocketMessage state = new(State, TimeFormatter);
+        SplitWebsocketMessage previousSplit = new(previousSegment, previousIndex, TimeFormatter);
+        SplitWebsocketMessage currentSplit = new(currentSegment, currentIndex, TimeFormatter);
+        MultiSplitWebsocketMessage multi = new(state, previousSplit, currentSplit);
+        BroadcastWebsocketMessage(new LiveSplitWebsocketMessage<MultiSplitWebsocketMessage>("broadcastundosplit", multi));
+    }
+
+    private void State_OnSkipSplit(object sender, EventArgs e)
+    {
+        int previousIndex = State.CurrentSplitIndex - 1;
+        ISegment previousSegment = State.Run[previousIndex];
+
+        int currentIndex = State.CurrentSplitIndex;
+        ISegment currentSegment = State.Run[currentIndex];
+
+        StateWebsocketMessage state = new(State, TimeFormatter);
+        SplitWebsocketMessage previousSplit = new(previousSegment, previousIndex, TimeFormatter);
+        SplitWebsocketMessage currentSplit = new(currentSegment, currentIndex, TimeFormatter);
+        MultiSplitWebsocketMessage multi = new(state, previousSplit, currentSplit);
+        BroadcastWebsocketMessage(new LiveSplitWebsocketMessage<MultiSplitWebsocketMessage>("broadcastskipsplit", multi));
+    }
+
+    private void State_OnReset(object sender, TimerPhase phase)
+    {
+        ResetWebsocketMessage stateMessage = new(State, TimeFormatter);
+        BroadcastWebsocketMessage(new LiveSplitWebsocketMessage<ResetWebsocketMessage>("broadcastreset", stateMessage));
+    }
+
+    private void State_OnPause(object sender, EventArgs e)
+    {
+        StateWebsocketMessage stateMessage = new(State, TimeFormatter);
+        BroadcastWebsocketMessage(new LiveSplitWebsocketMessage<StateWebsocketMessage>("broadcastpause", stateMessage));
+    }
+
+    private void State_OnResume(object sender, EventArgs e)
+    {
+        StateWebsocketMessage stateMessage = new(State, TimeFormatter);
+        BroadcastWebsocketMessage(new LiveSplitWebsocketMessage<StateWebsocketMessage>("broadcastresume", stateMessage));
+    }
+
+    #endregion
+
     public void Dispose()
     {
         State.OnStart -= State_OnStart;
+        State.OnSplit -= State_OnSplit;
+        State.OnUndoSplit -= State_OnUndoSplit;
+        State.OnSkipSplit -= State_OnSkipSplit;
+        State.OnReset -= State_OnReset;
+        State.OnPause -= State_OnPause;
+        //State.OnUndoAllPauses -= State_OnUndoAllPauses;
+        State.OnResume -= State_OnResume;
+        //State.OnScrollUp -= State_OnScrollUp;
+        //State.OnScrollDown -= State_OnScrollDown;
+        //State.OnSwitchComparisonPrevious -= State_OnSwitchComparisonPrevious;
+        //State.OnSwitchComparisonNext -= State_OnSwitchComparisonNext;
+        //State.RunManuallyModified -= State_RunManuallyModified;
+        //State.ComparisonRenamed -= State_ComparisonRenamed;
+
         StopAll();
+
         WaitingServerPipe.Dispose();
     }
 }
