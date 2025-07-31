@@ -5,13 +5,15 @@ using System.IO.Pipes;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 using LiveSplit.Model;
 using LiveSplit.Options;
+using LiveSplit.Server.WebsocketMessages;
 using LiveSplit.TimeFormatters;
+
+using Newtonsoft.Json;
 
 using WebSocketSharp.Server;
 
@@ -43,7 +45,12 @@ public class CommandServer
         Form = state.Form;
 
         Model.CurrentState = State;
+
+        State.OnStart -= State_OnStart;
         State.OnStart += State_OnStart;
+
+        State.OnSplit -= State_OnSplit;
+        State.OnSplit += State_OnSplit;
     }
 
     public void StartTcp()
@@ -167,7 +174,6 @@ public class CommandServer
 
     private void ProcessMessage(string message, IConnection clientConnection)
     {
-        string response = null;
         string[] args = message.Split([' '], 2);
         string command = args[0];
         switch (command)
@@ -292,6 +298,7 @@ public class CommandServer
                 State.IsGameTimePaused = true;
                 break;
             }
+            // RESPONSES
             case "getdelta":
             {
                 string comparison = args.Length > 1 ? args[1] : State.CurrentComparison;
@@ -306,98 +313,75 @@ public class CommandServer
                 }
 
                 // Defaults to "-" when delta is null, such as when State.CurrentPhase == TimerPhase.NotRunning
-                response = TimeFormatter.Format(delta);
+                GetDeltaWebsocketMessage response = new(TimeFormatter.Format(delta), delta.HasValue ? (float)delta.Value.TotalSeconds : 0);
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetDeltaWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "getsplitindex":
             {
                 int splitindex = State.CurrentSplitIndex;
-                response = splitindex.ToString();
+                GetSplitIndexWebsocketMessage response = new(splitindex);
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetSplitIndexWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "getcurrentsplitname":
             {
-                if (State.CurrentSplit != null)
-                {
-                    response = State.CurrentSplit.Name;
-                }
-                else
-                {
-                    response = "-";
-                }
-
+                GetSplitNameWebsocketMessage response = new(State.CurrentSplit != null ? State.CurrentSplit.Name : "-");
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetSplitNameWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "getlastsplitname":
             case "getprevioussplitname":
             {
-                if (State.CurrentSplitIndex > 0)
-                {
-                    response = State.Run[State.CurrentSplitIndex - 1].Name;
-                }
-                else
-                {
-                    response = "-";
-                }
-
+                GetSplitNameWebsocketMessage response = new(State.CurrentSplitIndex > 0 ? State.Run[State.CurrentSplitIndex - 1].Name : "-");
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetSplitNameWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "getlastsplittime":
             case "getprevioussplittime":
             {
-                if (State.CurrentSplitIndex > 0)
-                {
-                    TimeSpan? time = State.Run[State.CurrentSplitIndex - 1].SplitTime[State.CurrentTimingMethod];
-                    response = TimeFormatter.Format(time);
-                }
-                else
-                {
-                    response = "-";
-                }
-
+                TimeSpan? time = State.CurrentSplitIndex > 0 ? State.Run[State.CurrentSplitIndex - 1].SplitTime[State.CurrentTimingMethod] : null;
+                GetSplitTimeWebsocketMessage response = new(TimeFormatter.Format(time), time.HasValue ? time.Value.Seconds : 0);
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetSplitTimeWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "getcurrentsplittime":
             case "getcomparisonsplittime":
             {
+                TimeSpan? time = null;
+
                 if (State.CurrentSplit != null)
                 {
                     string comparison = args.Length > 1 ? args[1] : State.CurrentComparison;
-                    TimeSpan? time = State.CurrentSplit.Comparisons[comparison][State.CurrentTimingMethod];
-                    response = TimeFormatter.Format(time);
-                }
-                else
-                {
-                    response = "-";
+                    time = State.CurrentSplit.Comparisons[comparison][State.CurrentTimingMethod];
                 }
 
+                GetSplitTimeWebsocketMessage response = new(TimeFormatter.Format(time), time.HasValue ? time.Value.Seconds : 0);
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetSplitTimeWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "getcurrentrealtime":
             {
-                response = TimeFormatter.Format(GetCurrentTime(State, TimingMethod.RealTime));
+                TimeSpan? time = GetCurrentTime(State, TimingMethod.RealTime);
+
+                GetTimeWebsocketMessage response = new(TimeFormatter.Format(time), time.HasValue ? time.Value.Seconds : 0);
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetTimeWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "getcurrentgametime":
             {
-                TimingMethod timingMethod = TimingMethod.GameTime;
-                if (!State.IsGameTimeInitialized)
-                {
-                    timingMethod = TimingMethod.RealTime;
-                }
+                TimeSpan? time = GetCurrentTime(State, !State.IsGameTimeInitialized ? TimingMethod.RealTime : TimingMethod.GameTime);
 
-                response = TimeFormatter.Format(GetCurrentTime(State, timingMethod));
+                GetTimeWebsocketMessage response = new(TimeFormatter.Format(time), time.HasValue ? time.Value.Seconds : 0);
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetTimeWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "getcurrenttime":
             {
-                TimingMethod timingMethod = State.CurrentTimingMethod;
-                if (timingMethod == TimingMethod.GameTime && !State.IsGameTimeInitialized)
-                {
-                    timingMethod = TimingMethod.RealTime;
-                }
+                TimeSpan? time = GetCurrentTime(State, State.CurrentTimingMethod == TimingMethod.GameTime && !State.IsGameTimeInitialized ? TimingMethod.RealTime : State.CurrentTimingMethod);
 
-                response = TimeFormatter.Format(GetCurrentTime(State, timingMethod));
+                GetTimeWebsocketMessage response = new(TimeFormatter.Format(time), time.HasValue ? time.Value.Seconds : 0);
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetTimeWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "getfinaltime":
@@ -407,7 +391,9 @@ public class CommandServer
                 TimeSpan? time = (State.CurrentPhase == TimerPhase.Ended)
                     ? State.CurrentTime[State.CurrentTimingMethod]
                     : State.Run.Last().Comparisons[comparison][State.CurrentTimingMethod];
-                response = TimeFormatter.Format(time);
+
+                GetTimeWebsocketMessage response = new(TimeFormatter.Format(time), time.HasValue ? time.Value.Seconds : 0);
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetTimeWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "getbestpossibletime":
@@ -424,13 +410,16 @@ public class CommandServer
                 }
 
                 TimeSpan? prediction = PredictTime(State, comparison);
-                response = TimeFormatter.Format(prediction);
+
+                GetTimeWebsocketMessage response = new(TimeFormatter.Format(prediction), prediction.HasValue ? prediction.Value.Seconds : 0);
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetTimeWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "gettimerphase":
             case "getcurrenttimerphase":
             {
-                response = State.CurrentPhase.ToString();
+                GetTimerPhaseWebsocketMessage response = new(State.CurrentPhase.ToString());
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetTimerPhaseWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "setcomparison":
@@ -498,8 +487,12 @@ public class CommandServer
             case "getcustomvariablevalue":
             {
                 string value = State.Run.Metadata.CustomVariableValue(args[1]);
+
                 // make sure response isn't null or empty, and doesn't contain line endings
-                response = string.IsNullOrEmpty(value) ? "-" : Regex.Replace(value, @"\r\n?|\n", " ");
+                string newValue = string.IsNullOrEmpty(value) ? "-" : Regex.Replace(value, @"\r\n?|\n", " ");
+
+                GetCustomVariableValueWebsocketMessage response = new(newValue);
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetCustomVariableValueWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "setcustomvariable":
@@ -513,7 +506,7 @@ public class CommandServer
                 string[] options;
                 try
                 {
-                    options = JsonSerializer.Deserialize<string[]>(args[1]);
+                    options = System.Text.Json.JsonSerializer.Deserialize<string[]>(args[1]);
                 }
                 catch (Exception e)
                 {
@@ -533,17 +526,21 @@ public class CommandServer
             }
             case "ping":
             {
-                response = "pong";
+                PongWebsocketMessage response = new();
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<PongWebsocketMessage>(command, response), clientConnection);
                 break;
             }
             case "getattemptcount":
             {
-                response = Model.CurrentState.Run.AttemptCount.ToString();
+                GetAttemptCountWebsocketMessage response = new(Model.CurrentState.Run.AttemptCount);
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetAttemptCountWebsocketMessage>(command, response), clientConnection);
                 break;
             }
-			case "getcompletedcount":
+            case "getcompletedcount":
             {
-                response = State.Run.AttemptHistory.Count(x => x.Time.RealTime != null).ToString();
+                GetAttemptCountWebsocketMessage response = new(State.Run.AttemptHistory.Count(x => x.Time.RealTime != null));
+                SendWebsocketMessage(new LiveSplitWebsocketMessage<GetAttemptCountWebsocketMessage>(command, response), clientConnection);
+
                 break;
             }
             default:
@@ -552,11 +549,26 @@ public class CommandServer
                 break;
             }
         }
+    }
 
-        if (!string.IsNullOrEmpty(response))
+    private void SendWebsocketMessage<T>(LiveSplitWebsocketMessage<T> message, IConnection clientConnection)
+    {
+        if (clientConnection == null)
         {
-            clientConnection.SendMessage(response);
+            return;
         }
+
+        clientConnection.SendMessage(JsonConvert.SerializeObject(message));
+    }
+
+    private void BroadcastWebsocketMessage<T>(LiveSplitWebsocketMessage<T> message)
+    {
+        if (WsServer == null || !WsServer.IsListening)
+        {
+            return;
+        }
+
+        WsServer.WebSocketServices.Broadcast(JsonConvert.SerializeObject(message));
     }
 
     private void tcpConnection_Disconnected(object sender, EventArgs e)
@@ -574,6 +586,15 @@ public class CommandServer
         {
             State.IsGameTimePaused = true;
         }
+    }
+
+    private void State_OnSplit(object sender, EventArgs e)
+    {
+        int index = State.CurrentSplitIndex - 1;
+        ISegment segment = State.Run[index];
+
+        PostSplitWebsocketMessage broadcast = new(segment, index, TimeFormatter);
+        BroadcastWebsocketMessage(new LiveSplitWebsocketMessage<PostSplitWebsocketMessage>("postsplit", broadcast));
     }
 
     private TimeSpan? PredictTime(LiveSplitState state, string comparison)
