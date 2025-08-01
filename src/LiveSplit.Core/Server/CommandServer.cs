@@ -503,7 +503,7 @@ public class CommandServer
                 }
                 else
                 {
-                    Log.Warning($"[Sever] Split index {index} out of bounds for command {command}");
+                    Log.Warning($"[Server] Split index {index} out of bounds for command {command}");
                 }
 
                 break;

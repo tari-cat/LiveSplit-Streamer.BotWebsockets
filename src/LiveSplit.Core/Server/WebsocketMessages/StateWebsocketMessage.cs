@@ -17,6 +17,7 @@ public class StateWebsocketMessage
     public float GameTimeSeconds;
 
     public string TimingMethod;
+    public string TimerPhase;
 
     public bool IsGameTimeInitialized;
     public bool IsGameTimePaused;
@@ -44,5 +45,7 @@ public class StateWebsocketMessage
 
         IsGameTimeInitialized = state.IsGameTimeInitialized;
         IsGameTimePaused = state.IsGameTimePaused;
+
+        TimerPhase = state.CurrentPhase.ToString();
     }
 }
